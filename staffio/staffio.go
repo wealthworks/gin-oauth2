@@ -105,7 +105,7 @@ func Auth() gin.HandlerFunc {
 			ctx.AbortWithError(http.StatusBadRequest, err)
 			return
 		}
-		log.Printf("tok: %s", tok)
+		// log.Printf("tok: %s", tok)
 
 		client := conf.Client(oauth2.NoContext, tok)
 		info, err := client.Get(infoUrl)
@@ -120,7 +120,7 @@ func Auth() gin.HandlerFunc {
 			ctx.AbortWithError(http.StatusInternalServerError, err)
 			return
 		}
-		log.Print(string(data))
+		// log.Print(string(data))
 		var token InfoToken
 		err = json.Unmarshal(data, &token)
 		if err != nil {
