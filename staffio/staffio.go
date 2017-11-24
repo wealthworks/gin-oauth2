@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dgrijalva/jwt-go"
+	"github.com/dgrijalva/jwt-go/request"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/oauth2"
 )
@@ -55,8 +57,8 @@ type User struct {
 	GivenName      string `json:"gn" form:"gn" binding:"required"`    // 名
 	Surname        string `json:"sn" form:"sn" binding:"required"`    // 姓
 	Nickname       string `json:"nickname,omitempty" form:"nickname"` // 昵称
-	Birthday       string `json:"birthday,omitempty" form:"birthday"`
-	Gender         string `json:"gender,omitempty"`
+	Birthday       string `json:"birthday,omitempty" form:"birthday"` // 生日
+	Gender         uint8  `json:"gender,omitempty"`                   // 1=male, 2=female, 0=unknown
 	Mobile         string `json:"mobile,omitempty"`
 	Email          string `json:"email,omitempty"`
 	EmployeeNumber string `json:"eid,omitempty" form:"eid"`
@@ -66,7 +68,7 @@ type User struct {
 }
 
 type infoError struct {
-	Code    string `json:"error"`
+	Code    string `json:"error,omitempty"`
 	Message string `json:"error_description,omitempty"`
 }
 
@@ -91,7 +93,17 @@ func init() {
 		AuthURL:  fmt.Sprintf("%s/%s", prefix, "authorize"),
 		TokenURL: fmt.Sprintf("%s/%s", prefix, "token"),
 	}
+	clientID := getEnv("STAFFIO_CLIENT_ID", "")
+	clientSecret := getEnv("STAFFIO_CLIENT_SECRET", "")
+	if clientID == "" || clientSecret == "" {
+		log.Print("Warning: STAFFIO_CLIENT_ID or STAFFIO_CLIENT_SECRET not found in environment")
+	}
 	infoUrl = fmt.Sprintf("%s/%s", prefix, "info/me")
+	redirectURL := getEnv("STAFFIO_REDIRECT_URL", "")
+	scopes := strings.Split(getEnv("STAFFIO_SCOPES", ""), ",")
+	if clientID != "" && clientSecret != "" {
+		Setup(redirectURL, clientID, clientSecret, scopes)
+	}
 }
 
 func randToken() string {
@@ -163,7 +175,7 @@ func AuthCodeCallback() gin.HandlerFunc {
 			ctx.AbortWithError(http.StatusBadRequest, err)
 			return
 		}
-		// log.Printf("tok: %s", tok)
+		log.Printf("tok: %s", tok)
 
 		token, err := requestInfoToken(tok)
 		if err != nil {
@@ -202,6 +214,12 @@ func AuthToken() gin.HandlerFunc {
 	}
 }
 
+func GroupCheck(name string) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		// TODO:
+	}
+}
+
 func requestInfoToken(tok *oauth2.Token) (*InfoToken, error) {
 	client := conf.Client(oauth2.NoContext, tok)
 	info, err := client.Get(infoUrl)
@@ -234,17 +252,24 @@ func requestInfoToken(tok *oauth2.Token) (*InfoToken, error) {
 }
 
 func extractToken(r *http.Request) (*oauth2.Token, error) {
-	hdr := r.Header.Get("Authorization")
-	if hdr == "" {
-		return nil, errors.New("No authorization header")
+	tok, err := request.ParseFromRequest(r, request.OAuth2Extractor, keyFunc)
+	if err != nil {
+		return nil, err
 	}
 
-	th := strings.Split(hdr, " ")
-	if len(th) != 2 {
-		return nil, errors.New("Incomplete authorization header")
+	if tok == nil {
+		return nil, errors.New("Token was not found")
 	}
 
-	return &oauth2.Token{AccessToken: th[1], TokenType: th[0]}, nil
+	if !tok.Valid {
+		return nil, errors.New("Token is invalid")
+	}
+
+	return &oauth2.Token{AccessToken: tok.Raw}, nil
+}
+
+func keyFunc(tok *jwt.Token) (interface{}, error) {
+	return jwt.DecodeSegment(getEnv("STAFFIO_TOKENGEN_KEY", ""))
 }
 
 func getEnv(key, dft string) string {
